@@ -1,0 +1,72 @@
+LAMMPS (30 Jul 2021)
+OMP_NUM_THREADS environment is not set. Defaulting to 1 thread. (src/comm.cpp:98)
+  using 1 OpenMP thread(s) per MPI task
+# LMO uniaxial tensile test, Prateek Gandhi, October 2021.
+
+##---------------INITIALIZATION-------------------------------
+
+units          metal
+dimension 	    3
+boundary       p p p
+atom_style 	atomic
+newton 		on
+
+
+##---------------ATOM DEFINITION------------------------------
+
+read_data 	1514043.lmp
+Reading data file ...
+  orthogonal box = (0.0000000 0.0000000 0.0000000) to (8.2400000 8.2400000 8.2400000)
+  1 by 1 by 1 MPI processor grid
+  reading atoms ...
+  72 atoms
+  read_data CPU = 0.000 seconds
+
+
+##---------------FORCE FIELDS---------------------------------
+
+pair_style 	meam
+pair_coeff     * * library.meam Li Mn O library.meam_alloy Li Mn O
+
+
+##---------------SETTINGS-------------------------------------
+
+timestep 	0.001
+variable   ts equal 0.001
+
+
+##---------------COMPUTES-------------------------------------
+
+compute 	1 all stress/atom NULL
+compute    2 all reduce sum c_1[1] c_1[2]
+
+
+variable   Lx equal lx
+variable   Ly equal ly
+variable   Lz equal lz
+variable   Vol equal vol
+variable   thickn equal 8.245
+fix 1 all npt temp 300 300 1 iso 0 0 1 drag 1
+thermo 	2000
+##---------------RELAXATION--------------------------------------
+
+run            50000
+Neighbor list info ...
+  update every 1 steps, delay 10 steps, check yes
+  max neighbors/atom: 2000, page size: 100000
+  master list distance cutoff = 6.8
+  ghost atom cutoff = 6.8
+  binsize = 3.4, bins = 3 3 3
+  2 neighbor lists, perpetual/occasional/extra = 2 0 0
+  (1) pair meam, perpetual
+      attributes: full, newton on
+      pair build: full/bin/atomonly
+      stencil: full/bin/3d
+      bin: standard
+  (2) pair meam, perpetual, half/full from (1)
+      attributes: half, newton on
+      pair build: halffull/newton
+      stencil: none
+      bin: none
+ERROR: Non-numeric pressure - simulation unstable (src/fix_nh.cpp:1069)
+Last command: run            50000

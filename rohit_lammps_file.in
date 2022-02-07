@@ -1,0 +1,218 @@
+variable testnum equal 6
+variable testvar equal 1
+
+log log.cr_t${testnum}_${testvar}.LAMMPS
+
+dimension 3
+units metal
+boundary s s s
+atom_style full
+newton on
+
+variable alat universe 2.46
+variable crpers equal 4
+#variable xcoh equal 120
+variable xco equal 22
+variable yco equal 12
+variable zco equal 2
+variable az equal 6.7/${alat}
+lattice custom ${alat} &
+        a1 1 0 0 &
+        a2 0 1.732050807569 0 &
+        a3 0 0 ${az} &
+        basis 0.0 0.0 0.0 &
+        basis 0.5 0.166666666667 0 &
+        basis 0.5 0.5 0 &
+        basis 0.0 0.666666666667 0 &
+		basis 0.0 0.5 0.25 &
+        basis 0.0 0.3333333333335 0.5 &
+        basis 0.5 0.5 0.5 &
+        basis 0.5 0.833333333333 0.5 &
+        basis 0.0 0.0 0.5 &
+		basis 0.0 0.5 0.75
+region box block 0 ${xco} -${yco} ${yco} 0 ${zco}
+create_box 2 box
+create_atoms 1 box basis 1 1 basis 2 1 basis 3 1 basis 4 1 basis 5 2 basis 6 1 basis 7 1 basis 8 1 basis 9 1 basis 10 2
+
+variable strain equal 0.0005
+#variable strain2 equal "1+v_strain"
+variable deldist equal "v_xcol"
+variable fixdist equal "v_xco-1"
+variable ydist equal "v_yco-1"
+variable xlen equal lx
+variable ylen equal ly
+variable zlen equal lz
+
+print "lx: ${xlen}"
+print "ly: ${ylen}"
+print "lz: ${zlen}"
+
+mass 1 12.011
+mass 2 6.941
+
+set type 1 charge 0.00
+set type 2 charge +1.00
+
+pair_style reax/c NULL checkqeq yes
+pair_coeff * * ../../ffield_LiC C Li
+neighbor 0.3 bin
+neigh_modify delay 5
+
+compute PEA all pe/atom
+compute KEA all ke/atom
+compute eatoms all reduce sum c_PEA
+compute katoms all reduce sum c_KEA
+compute reax all pair reax/c
+variable eb      equal c_reax[1]
+variable ea      equal c_reax[2]
+variable elp	 equal c_reax[3]
+variable emol 	 equal c_reax[4]
+variable ev		 equal c_reax[5]
+variable epen	 equal c_reax[6]
+variable ecoa	 equal c_reax[7]
+variable ehb	 equal c_reax[8]
+variable et		 equal c_reax[9]
+variable eco	 equal c_reax[10]
+variable ew	 	 equal c_reax[11]
+variable ep	 	 equal c_reax[12]
+variable efi 	 equal c_reax[13]
+variable eqeq    equal c_reax[14]
+variable qa atom q
+compute qt all reduce sum v_qa
+variable qtt equal c_qt
+
+compute ly1low all reduce min y
+compute ly1hi all reduce max y
+
+region leftd block INF ${crpers} INF 0 INF INF 
+region leftu block INF ${crpers} 0 INF INF INF
+region bot block INF INF INF -${ydist} INF INF
+region top block INF INF ${ydist} INF INF INF
+region right block ${fixdist} INF INF INF INF INF
+region left block INF 1 INF INF INF INF
+
+group lbhigh region leftu
+
+group lblow region leftd
+
+group gbtop region top
+
+group gbbot region bot
+
+group gbr region right
+
+group gbl region left
+
+group ybound union gbtop gbbot
+group xbound union gbr gbl
+group bound union ybound xbound
+group active subtract all bound
+
+compute new active temp
+velocity active create 300.0 178171 temp new
+
+fix xb xbound setforce 0 NULL NULL
+fix 2 gbtop setforce 0 0 0
+fix 3 gbbot setforce 0 0 0
+fix qeqr all qeq/reax 50 0.0 10.0 1.0e-6 reax/c
+#neigh_modify exclude group lbhigh lblow
+
+reset_timestep 0
+thermo 10
+thermo_style custom step lx ly lz press pxx pyy pzz pe c_ly1low c_ly1hi vol c_eatoms &
+	v_eb v_ea v_elp v_emol v_ev v_epen v_ecoa v_ehb v_et &
+	v_eco v_ew v_ep v_efi v_eqeq v_qtt
+min_style cg
+#fix 1 all box/relax z 0.0 couple none vmax 0.001 
+minimize 1.0e-15 1.0e-15 10000 100000
+#unfix 1
+
+shell mkdir dumpFiles
+shell mkdir restartFiles
+shell cd restartFiles
+write_data min_${testnum}_${testvar}.data
+write_restart min_${testnum}_${testvar}.restart
+shell cd ..
+
+thermo_style custom step press pxx pyy pzz pe c_ly1low c_ly1hi vol c_eatoms &
+	v_eb v_ea v_elp v_emol v_ev v_epen v_ecoa v_ehb v_et &
+	v_eco v_ew v_ep v_efi v_eqeq v_qtt
+run 0
+
+variable ly1 equal "c_ly1hi - c_ly1low"
+variable ly0 equal ${ly1}
+variable lydelta equal "v_strain*v_ly0/2"
+print "Length of box w/ GB: ${ly0}"
+print "x Strain increments: ${lydelta}"
+
+variable p1 equal "(v_ly1-v_ly0)/v_ly0"
+variable p2 equal "-pxx/10000" # giga pascals
+variable p3 equal "-pyy/10000"
+variable p4 equal "-pzz/10000"
+variable p5 equal "-pxy/10000"
+variable p6 equal "-pxz/10000"
+variable p7 equal "-pyz/10000"
+variable p8 equal "pe"
+
+shell mkdir dumpFiles/eqDump
+shell cd dumpFiles/eqDump
+dump eq all custom 1000 dump.eq.* id type xu yu zu c_PEA c_KEA
+
+fix vol all nve
+fix eq active nvt temp 300.0 300.0 0.001
+
+timestep 0.0001
+run 10000
+shell cd ../..
+
+unfix 2
+unfix 3
+unfix xb
+undump eq
+
+shell cd restartFiles
+write_restart eq_1000.restart
+shell cd ..
+
+fix 4 all print 1 "${p1} ${p2} ${p3} ${p4} ${p5} ${p6} ${p7} ${p8} vol &
+		${eb} ${ea} ${elp} ${emol} ${ev} ${epen} ${ecoa} ${ehb} ${et} &
+		${eco} ${ew} ${ep} ${efi} ${eqeq} ${qtt}" file data.graphite_fracture.txt screen no
+run 0
+
+variable a loop 400
+
+shell mkdir dumpFiles/loopDump_${testnum}_${testvar}
+shell cd dumpFiles/loopDump_${testnum}_${testvar}
+
+label loop
+
+dump 1 all custom 500 forceBal.cc.*.dump mass id type xs ys zs c_PEA c_KEA q
+dump_modify 1 pad 4
+
+fix force1 gbtop setforce 0 0.1 0
+fix force2 gbbot setforce 0 -0.1 0
+fix xb xbound setforce 0 NULL NULL
+
+run 1
+
+unfix force1
+unfix force2
+
+fix 2 gbtop setforce 0 0 0
+fix 3 gbbot setforce 0 0 0
+
+run 500
+
+unfix 2
+unfix 3
+unfix xb
+
+undump 1
+restart 10000 forceBal.*.restart
+next a
+jump SELF loop 
+
+shell cd ../..
+shell cd restartFiles
+unfix 4
+write_restart cc_fracture_${testnum}_${testvar}.restart
